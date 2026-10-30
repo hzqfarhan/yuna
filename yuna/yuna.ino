@@ -1,10 +1,15 @@
 // ============================================================================
-// YUNA - ESP32 Quadruped Robot WiFi Controller
+// YUNA - ESP32 Quadruped Robot Controller
 // Developed & Customized by SELADEVS (https://seladevs.my)
 // ============================================================================
-// 依赖库 (Arduino Library Manager):
+// Control Methods:
+//   1. WiFi Web Controller (AP or STA mode)
+//   2. PS5 DualSense Controller via Bluetooth (BluePad32)
+//
+// Dependencies (Arduino Library Manager):
 //   1. ESP32Servo
 //   2. ArduinoJson
+//   3. Bluepad32 (for PS5 controller support)
 // 
 // 舵机与 esp32 引脚接线图, 数据口方向为后 (tail)
 // 
@@ -23,6 +28,17 @@
 //         |Pin26|             |Pin19|
 //         -----               -----
 //     后 (tail)
+//
+// PS5 Controller Button Map:
+//   Face Buttons:  △=Hello, ○=Dance, ✕=Home, □=Sit
+//   D-Pad:         ▲=Forward, ▼=Backward, ◄=TurnL, ►=TurnR
+//   Shoulders:     L1=MoonwalkL, R1=MoonwalkR
+//   L1+Combos:     △=Cheer, ○=Boxing, ✕=Scared, □=ShakeHand,
+//                  ▲=Jump, ▼=Hide, ◄=Twist, ►=Stretch
+//   R1+Combos:     △=WaveHand, ○=FrontBack, ✕=PushUp, □=UpDown,
+//                  ▲=TipToe, ▼=Pee, ◄=OmniWalk, ►=Run
+//   Analog Sticks: Left stick for proportional movement
+// ============================================================================
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -31,6 +47,12 @@
 #include <ArduinoJson.h>
 #include "minikame.h"
 #include "WiFiSetup.h"
+#include "Config.h"
+
+// PS5 Controller (conditionally included)
+#if ENABLE_PS5_CONTROLLER
+  #include "PS5Controller.h"
+#endif
 
 const int LED = 2;
 
@@ -50,9 +72,19 @@ void setup(void) {
   pinMode(LED, OUTPUT);
   digitalWrite(LED, 0);
 
-  Serial.begin(9600);  // 启动串口通讯
+  Serial.begin(115200);  // Increased baud rate for better debug output
+  Serial.println();
+  Serial.println("============================================");
+  Serial.println("  YUNA Quadruped Robot - SELADEVS");
+  Serial.println("  WiFi + PS5 DualSense Controller");
+  Serial.println("============================================");
 
-  // 初始化WiFi
+  // Initialize the robot
+  robot.init();
+  robot.home();
+  Serial.println("Robot initialized and in home position.");
+
+  // Initialize WiFi
   bool wifiConnected = initWiFi();
 
   // 根据WiFi连接状态设置LED
@@ -63,22 +95,40 @@ void setup(void) {
     server.begin();
     server.on("/", HTTP_GET, handleRoot);
     server.on("/control", HTTP_POST, handlePost);
+    // PS5 controller status endpoint
+    server.on("/ps5status", HTTP_GET, handlePS5Status);
     server.onNotFound(handleNotFound);
 
     Serial.println("HTTP server started: ready for connections");
   } else {
     Serial.println("WiFi configuration failed, please check Config.h");
-    delay(1000);
-    return;
   }
 
-  delay(10);
-  robot.init();
-  robot.home();
+  // Initialize PS5 Controller (works independently of WiFi)
+  #if ENABLE_PS5_CONTROLLER
+    Serial.println();
+    Serial.println("Initializing PS5 DualSense controller...");
+    initPS5Controller(&robot);
+    Serial.println("PS5 controller ready for pairing!");
+    Serial.println("  -> Hold CREATE + PS button on DualSense");
+  #else
+    Serial.println("PS5 controller support is DISABLED in Config.h");
+  #endif
+
+  Serial.println();
+  Serial.println("============================================");
+  Serial.println("  System ready! Waiting for input...");
+  Serial.println("============================================");
 }
 
 void loop() {
+  // Handle WiFi web server requests
   server.handleClient();
+
+  // Handle PS5 controller input
+  #if ENABLE_PS5_CONTROLLER
+    updatePS5Controller();
+  #endif
 }
 
 
@@ -88,6 +138,7 @@ void handleRoot() {
 
 void handlePost() {
   String postBody = server.arg("plain");
+  Serial.print("WiFi Command: ");
   Serial.println(postBody);
   jsonDoc.clear();
 
@@ -113,22 +164,37 @@ void handlePost() {
   } else {
     server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"No command specified\"}");
   }
+}
 
-  server.send(200, "application/json", "{\"status\":\"success\",\"message\":\"Command received\"}");
-
-  // server send json data
-  server.send(200, "application/json", "{\"status\": \"ok\"}");
+// PS5 controller status endpoint for web UI
+void handlePS5Status() {
+  String json = "{\"ps5_connected\":";
+  #if ENABLE_PS5_CONTROLLER
+    json += isPS5Connected() ? "true" : "false";
+  #else
+    json += "false";
+  #endif
+  json += "}";
+  server.send(200, "application/json", json);
 }
 
 bool processCommand(const char* command) {
   String cmd = String(command);
   
   if (cmd == "forward") {
-    robot.forward(2, 1000);
+    robot.walk(2, 250);
+    return true;
+  }
+  else if (cmd == "walk") {
+    robot.walk(2, 250);
+    return true;
+  }
+  else if (cmd == "trot") {
+    robot.forward(2, 400);
     return true;
   } 
   else if (cmd == "turn_L") {
-    robot.turnL(2, 1000);
+    robot.turnL(2, 550);
     return true;
   }
   else if (cmd == "home") {
@@ -136,11 +202,11 @@ bool processCommand(const char* command) {
     return true;
   }
   else if (cmd == "turn_R") {
-    robot.turnR(2, 1000);
+    robot.turnR(2, 550);
     return true;
   }
   else if (cmd == "backward") {
-    robot.backward(2, 1000);
+    robot.backward(2, 550);
     return true;
   }
   else if (cmd == "hello") {
@@ -148,39 +214,39 @@ bool processCommand(const char* command) {
     return true;
   }
   else if (cmd == "omni_walk") {
-    robot.omniWalk(2, 1000, true, 2);
+    robot.omniWalk(2, 500, true, 2);
     return true;
   }
   else if (cmd == "moonwalk_L") {
-    robot.moonwalkL(4, 2000);
+    robot.moonwalkL(4, 1000);
     return true;
   }
   else if (cmd == "moonwalk_R") {
-    robot.moonwalkR(4, 2000);
+    robot.moonwalkR(4, 1000);
     return true;
   }
   else if (cmd == "dance") {
-    robot.dance(3, 2000);
+    robot.dance(3, 1000);
     return true;
   }
   else if (cmd == "up_down") {
-    robot.upDown(2, 2000);
+    robot.upDown(2, 1000);
     return true;
   }
   else if (cmd == "push_up") {
-    robot.pushUp(2, 2000);
+    robot.pushUp(2, 1000);
     return true;
   }
   else if (cmd == "front_back") {
-    robot.frontBack(2, 1000);
+    robot.frontBack(2, 500);
     return true;
   }
   else if (cmd == "wave_hand") {
-    robot.waveHand(3, 2000);
+    robot.waveHand(3, 1000);
     return true;
   }
   else if (cmd == "hide") {
-    robot.hide(1, 2000);
+    robot.hide(1, 1000);
     return true;
   }
   else if (cmd == "scared") {
@@ -208,7 +274,7 @@ bool processCommand(const char* command) {
     return true;
   }
   else if (cmd == "twist") {
-    robot.twist(4, 1000);
+    robot.twist(4, 500);
     return true;
   }
   else if (cmd == "tiptoe") {
@@ -226,51 +292,6 @@ bool processCommand(const char* command) {
   else {
     // 未知命令
     return false;
-  }
-}
-
-void m() {
-  String ip = WiFi.localIP().toString().c_str();
-  server.sendHeader("Location", " / ");  // 跳转回页面根目录
-  server.send(303);
-  if (server.arg("x1") == "1") {
-    input = 1;
-  }
-  if (server.arg("x1") == "2") {
-    input = 2;
-  }
-  if (server.arg("x1") == "3") {
-    input = 3;
-  }
-  if (server.arg("x1") == "4") {
-    input = 4;
-  }
-  if (server.arg("x1") == "5") {
-    input = 5;
-  }
-  if (server.arg("x1") == "6") {
-    input = 6;
-  }
-  if (server.arg("x1") == "7") {
-    input = 7;
-  }
-  if (server.arg("x1") == "8") {
-    input = 8;
-  }
-  if (server.arg("x1") == "9") {
-    input = 9;
-  }
-  if (server.arg("x1") == "10") {
-    input = 10;
-  }
-  if (server.arg("x1") == "11") {
-    input = 11;
-  }
-  if (server.arg("x1") == "12") {
-    input = 12;
-  }
-  if (server.arg("x1") == "13") {
-    input = 13;
   }
 }
 

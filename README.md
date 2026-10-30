@@ -100,10 +100,11 @@ Yuna utilizes **8 micro servos** (SG90 / MG90S) connected to the ESP32 GPIO pins
 Search and install the following libraries inside Arduino IDE (**Sketch > Include Library > Manage Libraries...**):
 1. **ESP32Servo** (by Kevin Harrington)
 2. **ArduinoJson** (by Benoît Blanchon)
+3. **Bluepad32** (by Ricardo Quesada — required for PS5 controller support)
 
 ### 3. Flash Configuration
 
-1. Connect your ESP32 via USB and open `yuna.ino`.
+1. Connect your ESP32 via USB and open `yuna/yuna.ino`.
 2. Select your board under **Tools > Board > ESP32 Arduino > ESP32 Dev Module**.
 3. Select your **Port** (e.g. `COM3` on Windows).
 4. Set **Tools > Partition Scheme** to **"Huge APP (3MB No OTA/1MB SPIFFS)"** *(Essential to ensure sufficient program memory)*.
@@ -113,7 +114,7 @@ Search and install the following libraries inside Arduino IDE (**Sketch > Includ
 
 ## 🌐 Network Configuration
 
-Edit [`Config.h`](Config.h) before uploading if you wish to adjust network settings:
+Edit [`yuna/Config.h`](yuna/Config.h) before uploading if you wish to adjust network settings:
 
 ### Hotspot (AP) Mode (Default)
 ```cpp
@@ -144,18 +145,22 @@ IPAddress local_ip(192, 168, 1, 192); // Set according to your subnet
 
 ```
 yuna/
-├── yuna.ino          # Main Arduino firmware & HTTP web server
-├── Config.h          # WiFi credentials & network configuration
-├── WiFiSetup.h       # AP & STA mode connection manager
-├── minikame.h        # Quadruped kinematic classes & skill definitions
-├── minikame.cpp      # Gait routines & 20 animated action implementations
-├── Octosnake.h       # Sinusoidal phase oscillator library
-├── Octosnake.cpp     # Oscillator implementation
-├── index.html        # Red-themed web controller dashboard
-├── convert_html.py   # Utility to compile index.html into Arduino C++ string
-├── images/           # Wiring schematics and visual diagrams
-├── README.md         # Documentation
-└── LICENSE           # MIT License
+├── yuna/
+│   ├── yuna.ino          # Main Arduino firmware & HTTP web server
+│   ├── Config.h          # WiFi credentials & PS5 controller configuration
+│   ├── PS5Controller.h   # PS5 DualSense controller Bluetooth handler (Bluepad32)
+│   ├── WiFiSetup.h       # AP & STA mode connection manager
+│   ├── minikame.h        # Quadruped kinematic classes & skill definitions
+│   ├── minikame.cpp      # Gait routines & 20 animated action implementations
+│   ├── Octosnake.h       # Sinusoidal phase oscillator library
+│   └── Octosnake.cpp     # Oscillator implementation
+├── quad-arduino-wifi/    # Reference Arduino WiFi implementation
+├── quad-mpy/             # Reference MicroPython implementation
+├── index.html            # Red-themed web controller dashboard
+├── convert_html.py       # Utility to compile index.html into Arduino C++ string
+├── images/               # Wiring schematics and visual diagrams
+├── README.md             # Documentation
+└── LICENSE               # MIT License
 ```
 
 ---
